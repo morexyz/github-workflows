@@ -29,7 +29,7 @@ on:
         type: string
         default: '0.34.0'
       python-version:
-        description: Python version for Python projects
+        description: Python version for Python projects (3.8+)
         required: false
         type: string
         default: '3.12'
@@ -312,37 +312,61 @@ jobs:
         with:
           python-version: ${{ inputs.python-version }}
 
+      - name: Validate Python version
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import sys
+          if sys.version_info < (3, 8):
+              raise SystemExit('Universal CI supports Python 3.8 or newer.')
+          PY
+
       - name: Install dependencies and project when installable
         shell: bash
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          if test -f requirements.txt; then python -m pip install -r requirements.txt; fi
-          if test -f requirements-dev.txt; then python -m pip install -r requirements-dev.txt; fi
 
           install_project=false
+          parser_path=''
 
           if test -f pyproject.toml; then
             if ! python -c 'import tomllib' >/dev/null 2>&1; then
-              python -m pip install 'tomli==2.2.1'
+              parser_path="$RUNNER_TEMP/universal-ci-tomli"
+              rm -rf "$parser_path"
+              python -m pip install \
+                --disable-pip-version-check \
+                --no-deps \
+                --target "$parser_path" \
+                'tomli==2.2.1'
             fi
-            if python - <<'PY'
+
+            install_project="$({ PYTHONPATH="$parser_path" python - <<'PY'
+          import sys
           try:
               import tomllib
           except ModuleNotFoundError:
               import tomli as tomllib
-          with open('pyproject.toml', 'rb') as f:
-              data = tomllib.load(f)
-          raise SystemExit(0 if ('project' in data or 'build-system' in data) else 1)
+
+          try:
+              with open('pyproject.toml', 'rb') as f:
+                  data = tomllib.load(f)
+          except Exception as exc:
+              print(f'Invalid pyproject.toml: {exc}', file=sys.stderr)
+              raise
+
+          print('true' if ('project' in data or 'build-system' in data) else 'false')
           PY
-            then
-              install_project=true
-            fi
+            } )"
           fi
 
           if test "$install_project" != true && test -f setup.py; then
             install_project=true
           fi
+
+          if test -f requirements.txt; then python -m pip install -r requirements.txt; fi
+          if test -f requirements-dev.txt; then python -m pip install -r requirements-dev.txt; fi
 
           if test "$install_project" = true; then
             python -m pip install .
