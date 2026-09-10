@@ -175,6 +175,16 @@ jobs:
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
           echo "Selected package manager: $manager${version:+@$version}"
 
+      - name: Install declared npm version
+        if: steps.package-manager.outputs.manager == 'npm' && steps.package-manager.outputs.version != ''
+        shell: bash
+        env:
+          PACKAGE_MANAGER_VERSION: ${{ steps.package-manager.outputs.version }}
+        run: |
+          set -euo pipefail
+          npm install --global "npm@$PACKAGE_MANAGER_VERSION"
+          npm --version
+
       - name: Install Corepack when needed
         if: steps.package-manager.outputs.manager == 'pnpm' || steps.package-manager.outputs.manager == 'yarn'
         shell: bash
@@ -311,19 +321,8 @@ jobs:
           if test -f requirements-dev.txt; then python -m pip install -r requirements-dev.txt; fi
 
           install_project=false
-          if test -f setup.py; then
-            install_project=true
-          elif test -f setup.cfg; then
-            if python - <<'PY'
-          import configparser
-          config = configparser.ConfigParser()
-          config.read('setup.cfg')
-          raise SystemExit(0 if config.has_section('metadata') or config.has_section('options') else 1)
-          PY
-            then
-              install_project=true
-            fi
-          elif test -f pyproject.toml; then
+
+          if test -f pyproject.toml; then
             if python - <<'PY'
           import tomllib
           with open('pyproject.toml', 'rb') as f:
@@ -333,6 +332,10 @@ jobs:
             then
               install_project=true
             fi
+          fi
+
+          if test "$install_project" != true && test -f setup.py; then
+            install_project=true
           fi
 
           if test "$install_project" = true; then
