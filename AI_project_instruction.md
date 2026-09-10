@@ -22,6 +22,20 @@ Keep CI and CD release refs independent so updating one does not silently change
 
 These stable references are maintained branches, not immutable tags. Advance them only for backward-compatible, reviewed, validated fixes. Consumers requiring immutable supply-chain pinning should use exact commit SHAs.
 
+## Repository hardening
+
+The repository now has active rulesets and internal validation:
+
+- `main` is protected by the `Protect main` ruleset.
+- Changes to `main` require a pull request, linear history, deletion protection, and non-fast-forward/force-push protection.
+- `main` requires the aggregate `Self Validation` status check to pass.
+- Required status checks use strict branch freshness, so a pull request must be up to date with `main` before merge.
+- `v1` and `cd-v1` are protected by the `Protect stable workflow refs` ruleset against deletion, force-pushes, and non-linear history.
+- Stable refs intentionally remain fast-forwardable so reviewed backward-compatible releases can advance them deliberately.
+- `.github/workflows/self-validation.yml` runs Actionlint plus safe smoke tests of Universal CI and Universal CD, then reports one aggregate `Self Validation` result.
+
+See `docs/BRANCH_PROTECTION.md` for the maintained hardening model.
+
 ## Universal CI v1
 
 Supported automatic root-level detection:
@@ -87,6 +101,8 @@ Deployment adapters such as SSH/VPS, Docker, static hosting, cloud platforms, an
 - Do not bypass GitHub Environment existence checks or protection rules for production.
 - Do not add automatic blockchain mainnet deployment to Universal CD.
 - Do not rely on repository-scoped GitHub concurrency to coordinate different repositories that deploy to one shared external target.
+- Do not disable or bypass `Self Validation` for ordinary changes to `main`.
+- Do not force-update `v1` or `cd-v1`; advance them only by deliberate fast-forward after compatible validation.
 
 ## Validation completed
 
@@ -100,10 +116,13 @@ Deployment adapters such as SSH/VPS, Docker, static hosting, cloud platforms, an
 8. Stable CD ref `@cd-v1` was advanced to the hardened release and validated directly from the consumer repository.
 9. README usage documentation and MIT License were added.
 10. The repository was made public for direct external reuse.
+11. `Self Validation` was added and successfully exercised with Actionlint, Universal CI smoke validation, Universal CD disabled smoke validation, and an aggregate result.
+12. `Protect main` was activated with PR, linear-history, deletion, force-push protection, required `Self Validation`, and strict up-to-date-before-merge behavior.
+13. `Protect stable workflow refs` was activated for `v1` and `cd-v1` with deletion, force-push, and linear-history protection while retaining deliberate fast-forward release updates.
 
 ## Next steps
 
-1. Protect `main`, `v1`, and `cd-v1` with suitable branch/ruleset controls when administration tooling is available.
-2. Add deployment adapters only when real project requirements justify them.
-3. Revisit recursive monorepo CI discovery and additional ecosystems only when concrete repositories need them.
-4. Keep README and internal instructions synchronized with stable workflow contracts.
+1. Add deployment adapters only when real project requirements justify them.
+2. Revisit recursive monorepo CI discovery and additional ecosystems only when concrete repositories need them.
+3. Keep README, branch-protection documentation, and internal instructions synchronized with stable workflow contracts and repository rulesets.
+4. Consider immutable semver release tags in addition to moving major refs when a concrete release-management need appears.
