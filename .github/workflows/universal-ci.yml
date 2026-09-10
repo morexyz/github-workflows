@@ -323,8 +323,14 @@ jobs:
           install_project=false
 
           if test -f pyproject.toml; then
+            if ! python -c 'import tomllib' >/dev/null 2>&1; then
+              python -m pip install 'tomli==2.2.1'
+            fi
             if python - <<'PY'
-          import tomllib
+          try:
+              import tomllib
+          except ModuleNotFoundError:
+              import tomli as tomllib
           with open('pyproject.toml', 'rb') as f:
               data = tomllib.load(f)
           raise SystemExit(0 if ('project' in data or 'build-system' in data) else 1)
