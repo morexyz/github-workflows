@@ -9,10 +9,10 @@ Stable workflow references:
 - **Universal CI v1** — `morexyz/github-workflows/.github/workflows/universal-ci.yml@v1`
 - **Universal CD v1** — `morexyz/github-workflows/.github/workflows/universal-cd.yml@cd-v1`
 
-Fixed release references:
+Current immutable release references:
 
-- **Universal CI v1.0.0** — `morexyz/github-workflows/.github/workflows/universal-ci.yml@ci-v1.0.0`
-- **Universal CD v1.0.0** — `morexyz/github-workflows/.github/workflows/universal-cd.yml@cd-v1.0.0`
+- **Universal CI v1.0.2** — `morexyz/github-workflows/.github/workflows/universal-ci.yml@ci-v1.0.2`
+- **Universal CD v1.0.2** — `morexyz/github-workflows/.github/workflows/universal-cd.yml@cd-v1.0.2`
 
 The design goal is simple: consumer repositories keep tiny caller workflows, while common orchestration lives here. Project-specific CI or deployment behavior stays in the consumer repository through explicit hooks.
 
@@ -69,7 +69,10 @@ This central workflow repository protects itself before shared-workflow changes 
 - Pull requests must be up to date with `main` before the required check can satisfy the merge gate.
 - `Self Validation` combines Actionlint, a Universal CI smoke test, and a Universal CD disabled/dry-run smoke test.
 - `v1` and `cd-v1` are protected against deletion, force-pushes, and non-linear history while remaining deliberately fast-forwardable for reviewed backward-compatible releases.
-- `ci-v*` and `cd-v*` fixed release tags are protected against update and deletion after creation.
+- `ci-v*` and `cd-v*` release tags are protected against update and deletion after creation with no bypass actors.
+- Creation of matching release tags is separately restricted to the configured repository-administrator bypass role.
+- GitHub Release Immutability is enabled for new releases; `ci-v1.0.2` and `cd-v1.0.2` are verified immutable releases.
+- External GitHub Actions are pinned to full commit SHAs, and the Actionlint archive used by self-validation is checked against a fixed SHA-256 digest.
 
 See [`docs/BRANCH_PROTECTION.md`](docs/BRANCH_PROTECTION.md) for the maintained hardening model.
 
@@ -84,26 +87,28 @@ CD: @cd-v1
 
 These are mutable major-version pointers. They may advance only for backward-compatible, reviewed, validated fixes.
 
-For a fixed release that must not move, use the protected release tags:
+For the current fixed GitHub-immutable releases, use:
 
 ```text
-CI: @ci-v1.0.0
-CD: @cd-v1.0.0
+CI: @ci-v1.0.2
+CD: @cd-v1.0.2
 ```
 
-Current fixed release mappings:
+Current immutable release mappings:
 
 ```text
-ci-v1.0.0 → 5695f6e2ea04c6d6eb7cd5aa45d33effc9f370f3
-cd-v1.0.0 → 84216d819ac00d1096db2b2ae343769ede0f8ef3
+ci-v1.0.2 → 26eb1c1b82dbe666e6c3ef77b3ce72d79941ac62
+cd-v1.0.2 → 26eb1c1b82dbe666e6c3ef77b3ce72d79941ac62
 ```
 
-The `Protect immutable releases` tag ruleset blocks updates and deletions for `ci-v*` and `cd-v*` tags after creation.
+The `Protect immutable releases` tag ruleset blocks updates and deletions for `ci-v*` and `cd-v*` tags after creation with no bypass actors. The separate `Restrict release tag creation` ruleset limits creation of those tags to the configured repository-administrator bypass role. GitHub Release Immutability is enabled for newly published releases.
 
-For maximum supply-chain pinning, an exact commit SHA is still the most explicit reference:
+Earlier `v1.0.0` and `v1.0.1` releases remain valid historical releases, but they were published before GitHub Release Immutability was enabled. Their tags remain protected by the repository ruleset.
+
+For maximum explicit supply-chain pinning, use the exact hardened workflow commit SHA:
 
 ```yaml
-uses: morexyz/github-workflows/.github/workflows/universal-ci.yml@5695f6e2ea04c6d6eb7cd5aa45d33effc9f370f3
+uses: morexyz/github-workflows/.github/workflows/universal-ci.yml@26eb1c1b82dbe666e6c3ef77b3ce72d79941ac62
 ```
 
 Breaking workflow contracts should use new major-version references rather than silently changing v1 behavior.
@@ -580,9 +585,11 @@ Universal CD validation covered:
 - verification using the caller repository and caller token context
 - direct consumer validation through the released `@cd-v1` reference after the Environment guard hardening
 
-Repository-level validation also now includes the required aggregate `Self Validation` check on changes targeting `main`.
+Repository-level validation also includes the required aggregate `Self Validation` check on changes targeting `main`.
 
-Fixed release tags `ci-v1.0.0` and `cd-v1.0.0` were published and verified against their intended CI and CD commits, and are covered by the immutable-release tag ruleset.
+The dependency-pinning hardening was validated both inside this repository and through a disposable cross-repository consumer. Stable refs `@v1` and `@cd-v1` now point to hardened commit `26eb1c1b82dbe666e6c3ef77b3ce72d79941ac62`.
+
+Current releases `ci-v1.0.2` and `cd-v1.0.2` were published after GitHub Release Immutability was enabled, were verified with `immutable: true`, and resolve to the same hardened commit. Their tags are additionally protected against update/deletion by a no-bypass tag ruleset, while creation is governed separately.
 
 No real production server, cloud deployment destination, or blockchain network was used during these tests.
 
@@ -598,13 +605,14 @@ Shared-workflow changes can affect many repositories. Treat them as infrastructu
 
 1. Work on a feature/fix branch.
 2. Inspect the exact workflow diff.
-3. Review reusable-workflow syntax, permissions, inputs, secrets, expressions, and shell safety.
+3. Review reusable-workflow syntax, permissions, inputs, secrets, expressions, shell safety, and dependency pins.
 4. Validate with a disposable consumer repository.
 5. Exercise negative safety tests as well as success paths.
 6. Test dry-run before any real deployment path.
 7. Merge only after validation succeeds.
-8. Advance stable version refs deliberately.
-9. Publish a new fixed release tag for a versioned immutable release; never move an existing fixed release tag.
+8. Advance stable version refs deliberately with fast-forward only.
+9. Publish a new immutable release tag for a versioned release; never move, reuse, or delete an existing fixed release tag.
+10. Keep the release-tag creation bypass isolated from the no-bypass update/delete ruleset.
 
 Do not use a production repository as the first consumer test for a shared workflow change.
 
@@ -622,7 +630,11 @@ Do not use a production repository as the first consumer test for a shared workf
 - Deployment credentials are scoped through GitHub secrets/environments rather than repository files.
 - Production and blockchain mainnet deployment are never inferred automatically.
 - Changes targeting `main` must pass the aggregate `Self Validation` gate and be current with `main` before merge.
-- Fixed `ci-v*` and `cd-v*` release tags are protected against update and deletion after creation.
+- External GitHub Actions are pinned to full commit SHAs.
+- The Actionlint archive used by self-validation is verified against a fixed SHA-256 digest.
+- Fixed `ci-v*` and `cd-v*` release tags are protected against update and deletion with no bypass actors.
+- Creation of matching release tags is separately restricted to the configured repository-administrator bypass role.
+- GitHub Release Immutability is enabled for new releases; the current `v1.0.2` releases are verified immutable.
 
 # License
 
