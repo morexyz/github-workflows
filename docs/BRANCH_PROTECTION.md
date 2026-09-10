@@ -1,6 +1,6 @@
 # Branch Protection and Self Validation
 
-This repository protects shared workflow infrastructure with repository rulesets, pinned workflow dependencies, and an internal self-validation workflow.
+This repository protects shared workflow infrastructure with repository rulesets, pinned workflow dependencies, GitHub Release Immutability, and an internal self-validation workflow.
 
 ## Protected refs
 
@@ -27,14 +27,33 @@ Never force-update these refs. Advance them only with a fast-forward to a review
 
 ### `ci-v*` and `cd-v*`
 
-The active `Protect immutable releases` tag ruleset protects fixed workflow release tags against update and deletion after creation.
+Two separate tag rulesets protect release tags so creation authority is isolated from immutability protections.
 
-Published fixed release tags must never be moved or reused. Publish a new versioned tag for every immutable workflow release.
+`Protect immutable releases`:
 
-Current fixed releases:
+- targets `refs/tags/ci-v*` and `refs/tags/cd-v*`;
+- blocks updates;
+- blocks deletions;
+- has no bypass actors.
 
-- `ci-v1.0.0` → `5695f6e2ea04c6d6eb7cd5aa45d33effc9f370f3`
-- `cd-v1.0.0` → `84216d819ac00d1096db2b2ae343769ede0f8ef3`
+`Restrict release tag creation`:
+
+- targets the same release-tag patterns;
+- restricts creation;
+- grants the configured repository-administrator role an `always` bypass for creation only.
+
+Keeping creation in a separate ruleset is deliberate. The administrator bypass must not be added to `Protect immutable releases`, because published release tags must remain non-bypassable for update and deletion.
+
+Published fixed release tags must never be moved, reused, or deleted. Publish a new versioned tag for every release.
+
+Current immutable releases:
+
+- `ci-v1.0.2` → `26eb1c1b82dbe666e6c3ef77b3ce72d79941ac62`
+- `cd-v1.0.2` → `26eb1c1b82dbe666e6c3ef77b3ce72d79941ac62`
+
+GitHub Release Immutability is enabled for newly published releases. Both current `v1.0.2` releases were verified through the GitHub API with `immutable: true`.
+
+Earlier `v1.0.0` and `v1.0.1` releases predate GitHub Release Immutability enablement. Their release tags remain protected by the repository tag ruleset, but the GitHub Release API reports those earlier release objects as non-immutable.
 
 ## Workflow dependency pinning
 
@@ -46,7 +65,7 @@ uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
 Do not replace a full SHA with a movable branch or tag reference. To upgrade an Action, resolve and review the intended upstream ref, replace the SHA deliberately, and validate the change through a pull request.
 
-Downloaded tooling used by self-validation must also be integrity-pinned. The Actionlint binary is verified against a repository-owned fixed SHA-256 value before execution.
+Downloaded tooling used by self-validation must also be integrity-pinned. The Actionlint Linux amd64 archive is verified against a repository-owned fixed SHA-256 value before execution.
 
 ## Self Validation
 
@@ -67,11 +86,17 @@ Normal consumers may use the moving compatibility refs:
 - CI: `@v1`
 - CD: `@cd-v1`
 
-Consumers that want a fixed published release may use:
+Consumers that want the current fixed GitHub-immutable releases should use:
 
-- CI: `@ci-v1.0.0`
-- CD: `@cd-v1.0.0`
+- CI: `@ci-v1.0.2`
+- CD: `@cd-v1.0.2`
 
-For maximum explicit supply-chain pinning, consumers may reference the exact workflow commit SHA directly.
+Both current immutable tags resolve to:
+
+```text
+26eb1c1b82dbe666e6c3ef77b3ce72d79941ac62
+```
+
+For maximum explicit supply-chain pinning, consumers may reference that exact workflow commit SHA directly.
 
 A documentation-only change to `main` does not justify advancing either stable ref. Stable refs should advance only when the corresponding reusable workflow release itself needs a backward-compatible update.
