@@ -44,12 +44,28 @@ CI and CD are intentionally separate. **Universal CI never deploys.** Universal 
 ```text
 .github/workflows/
 ├── universal-ci.yml
-└── universal-cd.yml
+├── universal-cd.yml
+└── self-validation.yml
+
+docs/
+└── BRANCH_PROTECTION.md
 
 AI_project_instruction.md
 README.md
 LICENSE
 ```
+
+## Repository self-protection
+
+This central workflow repository protects itself before shared-workflow changes reach `main`.
+
+- `main` requires pull requests, linear history, deletion protection, and force-push protection.
+- The aggregate `Self Validation` status check is required before merge.
+- Pull requests must be up to date with `main` before the required check can satisfy the merge gate.
+- `Self Validation` combines Actionlint, a Universal CI smoke test, and a Universal CD disabled/dry-run smoke test.
+- `v1` and `cd-v1` are protected against deletion, force-pushes, and non-linear history while remaining deliberately fast-forwardable for reviewed backward-compatible releases.
+
+See [`docs/BRANCH_PROTECTION.md`](docs/BRANCH_PROTECTION.md) for the maintained hardening model.
 
 ## Versioning
 
@@ -542,6 +558,8 @@ Universal CD validation covered:
 - verification using the caller repository and caller token context
 - direct consumer validation through the released `@cd-v1` reference after the Environment guard hardening
 
+Repository-level validation also now includes the required aggregate `Self Validation` check on changes targeting `main`.
+
 No real production server, cloud deployment destination, or blockchain network was used during these tests.
 
 # Known v1 boundaries
@@ -578,6 +596,7 @@ Do not use a production repository as the first consumer test for a shared workf
 - GitHub token permissions remain read-only.
 - Deployment credentials are scoped through GitHub secrets/environments rather than repository files.
 - Production and blockchain mainnet deployment are never inferred automatically.
+- Changes targeting `main` must pass the aggregate `Self Validation` gate and be current with `main` before merge.
 
 # License
 
