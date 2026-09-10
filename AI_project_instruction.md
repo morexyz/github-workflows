@@ -25,8 +25,9 @@ This repository is the central home for reusable GitHub Actions workflows shared
 - Pin major versions of trusted GitHub Actions and keep third-party Actions minimal.
 - A custom `scripts/ci.sh` is authoritative for repositories that need project-specific CI behavior.
 - Production deployment must not be inferred from project type or repository contents.
-- Real deployment must use a named GitHub Environment and should use environment protection rules where appropriate.
-- Secrets must be passed explicitly to reusable CD workflows; do not assume cross-repository `secrets: inherit` for this personal-account repository layout.
+- Real deployment must use a named GitHub Environment that already exists in the caller repository and should use environment protection rules where appropriate.
+- Universal CD requires caller permissions `actions: read` and `contents: read`; no GitHub write permission is required by the shared workflow.
+- Repository-level deployment secrets may be passed explicitly. Environment-level secrets should be defined on the selected consumer-repository Environment and are resolved by the job that targets that Environment.
 
 ## Stable References
 
@@ -34,6 +35,8 @@ This repository is the central home for reusable GitHub Actions workflows shared
 - Universal CD v1: `morexyz/github-workflows/.github/workflows/universal-cd.yml@cd-v1`
 
 Keep CI and CD release refs independent so updating one does not silently change the other.
+
+These stable references are currently maintained branches rather than immutable tags. They may move forward only for backwards-compatible, reviewed, validated fixes. Consumers that require immutable supply-chain pinning should use exact commit SHAs.
 
 ## Universal CI v1
 
@@ -64,7 +67,9 @@ Universal CD is intentionally generic and does not guess how to deploy a project
 - `dry_run` defaults to `true`.
 - A real deployment requires both `enabled: true` and `dry_run: false`.
 - Real deployment runs inside the caller-selected GitHub Environment, default `production`.
-- `allowed_environments` restricts which environment names may be used for real deployment and defaults to `production`.
+- `allowed_environments` restricts which environment names may be used and defaults to `production`.
+- Before any real deployment job starts, the validation job calls the GitHub Environment API in the caller repository and requires the selected Environment to already exist.
+- Environment verification uses the caller repository context and caller `GITHUB_TOKEN` with `actions: read`; it fails closed on missing Environment or insufficient permission.
 - The caller repository owns deployment logic through `scripts/deploy.sh` by default.
 - Optional hooks are `scripts/predeploy.sh` and `scripts/healthcheck.sh`.
 - `working_directory` supports repositories where deployment hooks live below the root.
@@ -81,12 +86,13 @@ Deployment adapters such as SSH/VPS, Docker, static hosting, cloud platforms, an
 ## Safety / Things Not To Change Casually
 
 - Do not turn CI into automatic production deployment.
-- Do not grant `contents: write` to Universal CI or Universal CD without a documented need.
+- Do not grant GitHub write permissions to Universal CI or Universal CD without a documented need.
+- Do not remove `actions: read` from CD callers that may perform real deployment; environment existence verification depends on it.
 - Do not blindly execute arbitrary repository scripts beyond the documented CI/CD hooks and known validation script names.
 - Do not force one Node/Python/PHP/etc. version across all repositories without keeping it configurable.
 - Do not make absence of a supported CI project type fail by default; repositories may contain docs or unsupported stacks.
 - Do not change Universal CD defaults so that a caller can deploy without explicit opt-in.
-- Do not bypass GitHub Environment protection rules for production.
+- Do not bypass GitHub Environment existence checks or protection rules for production.
 - Do not add automatic blockchain mainnet deployment to Universal CD.
 - Do not rely on repository-scoped GitHub concurrency to coordinate different repositories that deploy to one shared external target.
 
@@ -104,11 +110,15 @@ Deployment adapters such as SSH/VPS, Docker, static hosting, cloud platforms, an
 10. Verified a harmless real deployment flow in the `cd-test` environment; predeploy, deploy, healthcheck, and summary all succeeded without any external target or credentials.
 11. Merged Universal CD v1 to `main` and created stable `cd-v1` ref.
 12. Closed the temporary Universal CD test PR in `morexyz/simple-project` without merging test-only hooks into `master`.
+13. Added a stricter Environment-existence guard after a final security review identified that an allowlist alone could not prove the target Environment was already configured.
+14. Verified the new guard with a negative consumer test where the same nonexistent Environment name was supplied in both `environment_name` and `allowed_environments`; validation failed and deploy was skipped.
+15. Verified the positive path against the existing `cd-test` Environment; validation, deploy, healthcheck, and summary succeeded.
 
 ## Next Steps
 
-1. Add deployment adapters only when a real repository needs them, such as SSH/VPS, Docker, static hosting, or a specific cloud platform.
-2. Configure GitHub Environments and approval/protection rules in each consumer repository before enabling production deployment.
-3. Add a small production CD caller only to repositories that explicitly opt in.
-4. Keep smart-contract deployment separate; never infer or automatically enable blockchain mainnet deployment.
-5. Revisit monorepo CI discovery and additional language ecosystems only when concrete repositories require them.
+1. Merge the Environment-existence hardening only after review is clean and advance `cd-v1` deliberately.
+2. Maintain a complete public-facing README aligned with the actual stable workflow contracts.
+3. Add deployment adapters only when a real repository needs them, such as SSH/VPS, Docker, static hosting, or a specific cloud platform.
+4. Configure GitHub Environments and approval/protection rules in each consumer repository before enabling production deployment.
+5. Keep smart-contract deployment separate; never infer or automatically enable blockchain mainnet deployment.
+6. Revisit monorepo CI discovery and additional language ecosystems only when concrete repositories require them.
