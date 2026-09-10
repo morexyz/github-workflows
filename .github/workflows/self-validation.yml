@@ -1,0 +1,48 @@
+name: Self Validation
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  actionlint:
+    name: Actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install and verify actionlint
+        shell: bash
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+        run: |
+          set -euo pipefail
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          base="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
+          curl --fail --location --silent --show-error --output "$RUNNER_TEMP/$archive" "$base/$archive"
+          curl --fail --location --silent --show-error --output "$RUNNER_TEMP/checksums.txt" "$base/actionlint_${ACTIONLINT_VERSION}_checksums.txt"
+          expected="$(grep "  $archive$" "$RUNNER_TEMP/checksums.txt")"
+          test -n "$expected"
+          printf '%s\n' "$expected" | (cd "$RUNNER_TEMP" && sha256sum --check --strict -)
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -version
+      - name: Lint GitHub Actions workflows
+        shell: bash
+        run: |
+          "$RUNNER_TEMP/actionlint" -shellcheck= -pyflakes=
+
+  universal-ci:
+    name: Universal CI smoke test
+    uses: ./.github/workflows/universal-ci.yml
+
+  universal-cd-disabled:
+    name: Universal CD disabled smoke test
+    uses: ./.github/workflows/universal-cd.yml
+    with:
+      enabled: false
+      dry_run: true
