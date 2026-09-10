@@ -15,12 +15,24 @@ This repository is the public central home for reusable GitHub Actions workflows
 
 ## Stable references
 
+Moving major-version references:
+
 - Universal CI v1: `morexyz/github-workflows/.github/workflows/universal-ci.yml@v1`
 - Universal CD v1: `morexyz/github-workflows/.github/workflows/universal-cd.yml@cd-v1`
 
+Protected fixed release references:
+
+- Universal CI v1.0.0: `morexyz/github-workflows/.github/workflows/universal-ci.yml@ci-v1.0.0`
+- Universal CD v1.0.0: `morexyz/github-workflows/.github/workflows/universal-cd.yml@cd-v1.0.0`
+
 Keep CI and CD release refs independent so updating one does not silently change the other.
 
-These stable references are maintained branches, not immutable tags. Advance them only for backward-compatible, reviewed, validated fixes. Consumers requiring immutable supply-chain pinning should use exact commit SHAs.
+The moving stable references are maintained branches. Advance them only for backward-compatible, reviewed, validated fixes. The fixed `ci-v*` and `cd-v*` release tags are protected against update and deletion by the `Protect immutable releases` tag ruleset. Consumers requiring maximum supply-chain pinning may still use exact commit SHAs.
+
+Current fixed release mappings:
+
+- `ci-v1.0.0` → `5695f6e2ea04c6d6eb7cd5aa45d33effc9f370f3`
+- `cd-v1.0.0` → `84216d819ac00d1096db2b2ae343769ede0f8ef3`
 
 ## Repository hardening
 
@@ -32,6 +44,7 @@ The repository now has active rulesets and internal validation:
 - Required status checks use strict branch freshness, so a pull request must be up to date with `main` before merge.
 - `v1` and `cd-v1` are protected by the `Protect stable workflow refs` ruleset against deletion, force-pushes, and non-linear history.
 - Stable refs intentionally remain fast-forwardable so reviewed backward-compatible releases can advance them deliberately.
+- `ci-v*` and `cd-v*` tags are protected by `Protect immutable releases` against update and deletion after creation.
 - `.github/workflows/self-validation.yml` runs Actionlint plus safe smoke tests of Universal CI and Universal CD, then reports one aggregate `Self Validation` result.
 
 See `docs/BRANCH_PROTECTION.md` for the maintained hardening model.
@@ -103,6 +116,7 @@ Deployment adapters such as SSH/VPS, Docker, static hosting, cloud platforms, an
 - Do not rely on repository-scoped GitHub concurrency to coordinate different repositories that deploy to one shared external target.
 - Do not disable or bypass `Self Validation` for ordinary changes to `main`.
 - Do not force-update `v1` or `cd-v1`; advance them only by deliberate fast-forward after compatible validation.
+- Do not update or delete published `ci-v*` or `cd-v*` fixed release tags.
 
 ## Validation completed
 
@@ -119,10 +133,11 @@ Deployment adapters such as SSH/VPS, Docker, static hosting, cloud platforms, an
 11. `Self Validation` was added and successfully exercised with Actionlint, Universal CI smoke validation, Universal CD disabled smoke validation, and an aggregate result.
 12. `Protect main` was activated with PR, linear-history, deletion, force-push protection, required `Self Validation`, and strict up-to-date-before-merge behavior.
 13. `Protect stable workflow refs` was activated for `v1` and `cd-v1` with deletion, force-push, and linear-history protection while retaining deliberate fast-forward release updates.
+14. `Protect immutable releases` was activated for `ci-v*` and `cd-v*` tags with update and deletion protection.
+15. Fixed releases `ci-v1.0.0` and `cd-v1.0.0` were published and verified against the intended CI and CD commits.
 
 ## Next steps
 
 1. Add deployment adapters only when real project requirements justify them.
 2. Revisit recursive monorepo CI discovery and additional ecosystems only when concrete repositories need them.
-3. Keep README, branch-protection documentation, and internal instructions synchronized with stable workflow contracts and repository rulesets.
-4. Consider immutable semver release tags in addition to moving major refs when a concrete release-management need appears.
+3. Keep README, branch-protection documentation, and internal instructions synchronized with stable workflow contracts, repository rulesets, and fixed releases.
