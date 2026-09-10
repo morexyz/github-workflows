@@ -10,7 +10,8 @@ This repository is the central home for reusable GitHub Actions workflows shared
 - Consumer repositories keep only small caller workflows.
 - CI is centralized here; project-specific behavior should stay in the consumer repository.
 - A consumer repository can provide `scripts/ci.sh` to override generic auto-detection safely.
-- CD will be added separately after Universal CI is proven on test repositories.
+- CD is separate from CI and must always be explicitly enabled by the caller.
+- Universal CD v1 is hook-based: deployment implementation stays in the consumer repository.
 
 ## Conventions
 
@@ -23,6 +24,9 @@ This repository is the central home for reusable GitHub Actions workflows shared
 - Keep permissions read-only unless a workflow has a documented reason to need more.
 - Pin major versions of trusted GitHub Actions and keep third-party Actions minimal.
 - A custom `scripts/ci.sh` is authoritative for repositories that need project-specific CI behavior.
+- Production deployment must not be inferred from project type or repository contents.
+- Real deployment must use a named GitHub Environment and should use environment protection rules where appropriate.
+- Secrets must be passed explicitly to reusable CD workflows; do not assume cross-repository `secrets: inherit` for this personal-account repository layout.
 
 ## Universal CI v1
 
@@ -44,24 +48,50 @@ Supported automatic detection:
 
 Detection is root-level in v1. Monorepo-specific recursive discovery is intentionally deferred until v1 is proven stable.
 
+## Universal CD v1
+
+Universal CD is intentionally generic and does not guess how to deploy a project.
+
+- `enabled` defaults to `false`.
+- `dry_run` defaults to `true`.
+- A real deployment requires both `enabled: true` and `dry_run: false`.
+- Real deployment runs inside the caller-selected GitHub Environment, default `production`.
+- The caller repository owns deployment logic through `scripts/deploy.sh` by default.
+- Optional hooks are `scripts/predeploy.sh` and `scripts/healthcheck.sh`.
+- `working_directory` supports repositories where deployment hooks live below the root.
+- Standard non-secret deployment values are exposed as `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_PATH`, and `DEPLOY_URL`.
+- Standard optional secrets are `DEPLOY_TOKEN`, `DEPLOY_PASSWORD`, `DEPLOY_SSH_KEY`, and `DEPLOY_CREDENTIALS`.
+- Hook paths must be repository-relative and cannot contain `..` path segments.
+- A missing required deploy hook fails validation when CD is enabled.
+- Disabled and dry-run modes never execute deployment hooks.
+
+Deployment adapters such as SSH/VPS, Docker, static hosting, cloud platforms, and smart-contract deployment should be added separately rather than making Universal CD infer a deployment strategy. Smart-contract mainnet deployment must never be automatic.
+
 ## Safety / Things Not To Change Casually
 
 - Do not turn CI into automatic production deployment.
-- Do not grant `contents: write` to Universal CI.
-- Do not blindly execute arbitrary repository scripts beyond the documented custom hook and known validation script names.
+- Do not grant `contents: write` to Universal CI or Universal CD without a documented need.
+- Do not blindly execute arbitrary repository scripts beyond the documented CI/CD hooks and known validation script names.
 - Do not force one Node/Python/PHP/etc. version across all repositories without keeping it configurable.
-- Do not make absence of a supported project type fail by default; repositories may contain docs or unsupported stacks.
+- Do not make absence of a supported CI project type fail by default; repositories may contain docs or unsupported stacks.
+- Do not change Universal CD defaults so that a caller can deploy without explicit opt-in.
+- Do not bypass GitHub Environment protection rules for production.
+- Do not add automatic blockchain mainnet deployment to Universal CD.
 
 ## Completed Steps
 
 1. Created central repository `morexyz/github-workflows`.
-2. Started Universal CI v1 on branch `feat/universal-ci-v1`.
+2. Implemented and Codex-reviewed Universal CI v1.
+3. Enabled private-repository access for repositories owned by `morexyz`.
+4. Validated Universal CI from `morexyz/simple-project` using a cross-repository reusable workflow call.
+5. Merged Universal CI v1 to `main` and created stable `v1` ref.
+6. Updated `morexyz/simple-project` to use `morexyz/github-workflows/.github/workflows/universal-ci.yml@v1`.
+7. Started Universal CD v1 on branch `feat/universal-cd-v1`.
 
 ## Next Steps
 
-1. Add and review the reusable Universal CI workflow.
-2. Merge Universal CI only after review.
-3. Enable private-repository Actions access for this central repository if required by GitHub settings.
-4. Add a minimal caller workflow to a disposable/test repository.
-5. Verify actual GitHub Actions execution.
-6. Only then design Universal CD as a separate opt-in workflow.
+1. Review Universal CD v1 for workflow syntax, permissions, environment/secrets behavior, and path safety.
+2. Add a dry-run caller to a disposable/test repository and verify no deployment hook executes.
+3. Add a harmless test deployment hook and verify explicit real-deployment gating in a non-production test environment.
+4. Merge Universal CD only after review and successful caller tests.
+5. Add deployment adapters separately as real project needs are identified.
