@@ -8,6 +8,26 @@ on:
         required: false
         type: string
         default: '22'
+      pnpm-version:
+        description: Stable pnpm fallback when package.json does not pin packageManager
+        required: false
+        type: string
+        default: '10.26.1'
+      yarn-version:
+        description: Stable Yarn fallback when package.json does not pin packageManager
+        required: false
+        type: string
+        default: '1.22.22'
+      bun-version:
+        description: Stable Bun fallback when package.json does not pin packageManager
+        required: false
+        type: string
+        default: '1.2.22'
+      corepack-version:
+        description: Corepack version installed when Node.js does not bundle Corepack
+        required: false
+        type: string
+        default: '0.34.0'
       python-version:
         description: Python version for Python projects
         required: false
@@ -91,35 +111,135 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ inputs.node-version }}
-      - name: Enable Corepack
-        run: corepack enable
+
+      - name: Select package manager
+        id: package-manager
+        shell: bash
+        env:
+          DEFAULT_PNPM_VERSION: ${{ inputs.pnpm-version }}
+          DEFAULT_YARN_VERSION: ${{ inputs.yarn-version }}
+          DEFAULT_BUN_VERSION: ${{ inputs.bun-version }}
+        run: |
+          set -euo pipefail
+          node <<'NODE' > /tmp/package-manager.env
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const raw = typeof pkg.packageManager === 'string' ? pkg.packageManager.trim() : '';
+          let manager = '';
+          let version = '';
+          if (raw) {
+            const at = raw.lastIndexOf('@');
+            manager = at > 0 ? raw.slice(0, at) : raw;
+            version = at > 0 ? raw.slice(at + 1) : '';
+          }
+          console.log(`DECLARED_MANAGER=${manager}`);
+          console.log(`DECLARED_VERSION=${version}`);
+          NODE
+          . /tmp/package-manager.env
+
+          case "$DECLARED_MANAGER" in
+            npm|pnpm|yarn|bun)
+              manager="$DECLARED_MANAGER"
+              version="$DECLARED_VERSION"
+              ;;
+            '')
+              if test -f pnpm-lock.yaml; then
+                manager=pnpm
+                version="$DEFAULT_PNPM_VERSION"
+              elif test -f yarn.lock; then
+                manager=yarn
+                version="$DEFAULT_YARN_VERSION"
+              elif test -f bun.lockb || test -f bun.lock; then
+                manager=bun
+                version="$DEFAULT_BUN_VERSION"
+              else
+                manager=npm
+                version=''
+              fi
+              ;;
+            *)
+              echo "Unsupported packageManager '$DECLARED_MANAGER'." >&2
+              exit 1
+              ;;
+          esac
+
+          if test "$manager" != npm && test -z "$version"; then
+            case "$manager" in
+              pnpm) version="$DEFAULT_PNPM_VERSION" ;;
+              yarn) version="$DEFAULT_YARN_VERSION" ;;
+              bun) version="$DEFAULT_BUN_VERSION" ;;
+            esac
+          fi
+
+          printf 'manager=%s\n' "$manager" >> "$GITHUB_OUTPUT"
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          echo "Selected package manager: $manager${version:+@$version}"
+
+      - name: Install Corepack when needed
+        if: steps.package-manager.outputs.manager == 'pnpm' || steps.package-manager.outputs.manager == 'yarn'
+        shell: bash
+        env:
+          COREPACK_VERSION: ${{ inputs.corepack-version }}
+        run: |
+          set -euo pipefail
+          if ! command -v corepack >/dev/null 2>&1; then
+            npm install --global "corepack@$COREPACK_VERSION"
+          fi
+          corepack enable
+
+      - name: Activate pnpm
+        if: steps.package-manager.outputs.manager == 'pnpm'
+        shell: bash
+        env:
+          PACKAGE_MANAGER_VERSION: ${{ steps.package-manager.outputs.version }}
+        run: |
+          set -euo pipefail
+          corepack prepare "pnpm@$PACKAGE_MANAGER_VERSION" --activate
+          pnpm --version
+
+      - name: Activate Yarn
+        if: steps.package-manager.outputs.manager == 'yarn'
+        shell: bash
+        env:
+          PACKAGE_MANAGER_VERSION: ${{ steps.package-manager.outputs.version }}
+        run: |
+          set -euo pipefail
+          corepack prepare "yarn@$PACKAGE_MANAGER_VERSION" --activate
+          yarn --version
+
+      - name: Set up Bun
+        if: steps.package-manager.outputs.manager == 'bun'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ steps.package-manager.outputs.version }}
+
       - name: Install dependencies
         shell: bash
+        env:
+          MANAGER: ${{ steps.package-manager.outputs.manager }}
         run: |
           set -euo pipefail
-          if test -f pnpm-lock.yaml; then
-            corepack prepare pnpm@latest --activate
-            pnpm install --frozen-lockfile
-          elif test -f yarn.lock; then
-            yarn install --immutable || yarn install --frozen-lockfile
-          elif test -f bun.lockb || test -f bun.lock; then
-            curl -fsSL https://bun.sh/install | bash
-            export PATH="$HOME/.bun/bin:$PATH"
-            bun install --frozen-lockfile
-          elif test -f package-lock.json || test -f npm-shrinkwrap.json; then
-            npm ci
-          else
-            npm install
-          fi
+          case "$MANAGER" in
+            pnpm)
+              if test -f pnpm-lock.yaml; then pnpm install --frozen-lockfile; else pnpm install; fi
+              ;;
+            yarn)
+              if test -f yarn.lock; then yarn install --immutable || yarn install --frozen-lockfile; else yarn install; fi
+              ;;
+            bun)
+              if test -f bun.lockb || test -f bun.lock; then bun install --frozen-lockfile; else bun install; fi
+              ;;
+            npm)
+              if test -f package-lock.json || test -f npm-shrinkwrap.json; then npm ci; else npm install; fi
+              ;;
+          esac
+
       - name: Run declared validation scripts
         shell: bash
+        env:
+          MANAGER: ${{ steps.package-manager.outputs.manager }}
         run: |
           set -euo pipefail
-          if test -f pnpm-lock.yaml; then runner=pnpm;
-          elif test -f yarn.lock; then runner=yarn;
-          elif test -f bun.lockb || test -f bun.lock; then runner="$HOME/.bun/bin/bun";
-          else runner=npm; fi
-
           node - <<'NODE' > /tmp/ci-scripts.txt
           const fs = require('fs');
           const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
@@ -129,11 +249,11 @@ jobs:
 
           while IFS= read -r script; do
             test -n "$script" || continue
-            case "$runner" in
+            case "$MANAGER" in
               pnpm) pnpm run "$script" ;;
               yarn) yarn "$script" ;;
+              bun) bun run "$script" ;;
               npm) npm run "$script" ;;
-              *) "$runner" run "$script" ;;
             esac
           done < /tmp/ci-scripts.txt
 
@@ -181,18 +301,44 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ inputs.python-version }}
-          cache: pip
-          cache-dependency-path: |
-            requirements*.txt
-            pyproject.toml
-      - name: Install dependencies
+
+      - name: Install dependencies and project when installable
         shell: bash
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
           if test -f requirements.txt; then python -m pip install -r requirements.txt; fi
           if test -f requirements-dev.txt; then python -m pip install -r requirements-dev.txt; fi
-          if test -f pyproject.toml && ! test -f requirements.txt; then python -m pip install .; fi
+
+          install_project=false
+          if test -f setup.py; then
+            install_project=true
+          elif test -f setup.cfg; then
+            if python - <<'PY'
+          import configparser
+          config = configparser.ConfigParser()
+          config.read('setup.cfg')
+          raise SystemExit(0 if config.has_section('metadata') or config.has_section('options') else 1)
+          PY
+            then
+              install_project=true
+            fi
+          elif test -f pyproject.toml; then
+            if python - <<'PY'
+          import tomllib
+          with open('pyproject.toml', 'rb') as f:
+              data = tomllib.load(f)
+          raise SystemExit(0 if ('project' in data or 'build-system' in data) else 1)
+          PY
+            then
+              install_project=true
+            fi
+          fi
+
+          if test "$install_project" = true; then
+            python -m pip install .
+          fi
+
       - name: Compile Python sources
         shell: bash
         run: |
@@ -232,9 +378,26 @@ jobs:
         with:
           toolchain: ${{ inputs.rust-toolchain }}
           components: rustfmt
-      - run: cargo fmt --all -- --check
-      - run: cargo check --all-targets --all-features
-      - run: cargo test --all-features
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Check Rust project
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -f Cargo.lock; then
+            cargo check --locked --all-targets --all-features
+          else
+            cargo check --all-targets --all-features
+          fi
+      - name: Run Rust tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -f Cargo.lock; then
+            cargo test --locked --all-features
+          else
+            cargo test --all-features
+          fi
 
   foundry:
     name: Foundry CI
