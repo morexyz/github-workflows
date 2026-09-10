@@ -1,15 +1,15 @@
 # Universal GitHub CI/CD Workflows
 
-Reusable GitHub Actions workflows for consistent CI and opt-in CD across repositories.
+Reusable GitHub Actions workflows for consistent CI and safe, opt-in CD across repositories.
 
-This repository currently provides two stable reusable workflows:
+This repository provides two shared workflows:
 
 - **Universal CI v1** — `morexyz/github-workflows/.github/workflows/universal-ci.yml@v1`
 - **Universal CD v1** — `morexyz/github-workflows/.github/workflows/universal-cd.yml@cd-v1`
 
-The design keeps consumer repositories small: each project owns its application code and any project-specific CI/CD hooks, while common orchestration lives here.
+The goal is simple: consumer repositories keep tiny caller workflows, while common orchestration is maintained here. Project-specific validation and deployment behavior remains in the consumer repository when needed.
 
-> **Access note:** this repository is currently private. Repositories owned by `morexyz` can use it when repository Actions access is enabled. Other users cannot directly call this private repository unless they are granted compatible access; they can copy/fork the workflows into a repository they control. If this repository is later made public, public direct reuse becomes possible.
+> **Access note:** this repository is currently private. Repositories owned by `morexyz` can use it because private reusable-workflow access has been enabled. Other GitHub users cannot directly call this private repository unless compatible access is granted. They can copy or fork these workflows into a repository they control. If this repository is later made public, direct public reuse becomes possible.
 
 ## Architecture
 
@@ -22,19 +22,21 @@ Developer / AI Agent
         |
   Universal CI
         |
-  lint / typecheck / test / build
+ lint / typecheck / test / build
         |
       Review
         |
       Merge
         |
-  optional Universal CD
+ optional Universal CD
         |
       dry-run?
       /     \
     yes     no
      |       |
- validate  GitHub Environment
+ validate   verify GitHub Environment exists
+             |
+        GitHub Environment
              |
         predeploy hook
              |
@@ -43,7 +45,7 @@ Developer / AI Agent
         healthcheck hook
 ```
 
-CI and CD are intentionally separate. Universal CI never deploys. Universal CD never runs a real deployment unless the caller explicitly opts in.
+CI and CD are intentionally separate. **Universal CI never deploys.** Universal CD never runs a real deployment unless the caller explicitly opts in.
 
 ## Repository layout
 
@@ -58,20 +60,22 @@ README.md
 
 ## Stable references
 
-Use the stable references in consumer repositories rather than `main`:
+Consumer repositories should normally use:
 
 ```text
 CI: @v1
 CD: @cd-v1
 ```
 
-At the moment these are maintained Git branches rather than immutable Git tags. They are intended as stable major-version pointers. Pinning an exact commit SHA gives stronger immutability if your security policy requires it.
+These are currently maintained Git branches, not immutable Git tags. They act as stable major-version pointers and may be advanced deliberately for backwards-compatible fixes after review and validation.
+
+For maximum immutability and supply-chain reproducibility, pin the reusable workflow to an exact commit SHA instead.
 
 ---
 
 # Universal CI v1
 
-Universal CI detects the project type from root-level files and runs conventional checks for supported ecosystems.
+Universal CI detects supported root-level project files and runs conventional validation automatically.
 
 ## Quick start
 
@@ -99,14 +103,14 @@ That is enough for a supported root-level project.
 | Project type | Detection | Default checks |
 |---|---|---|
 | Custom | `scripts/ci.sh` | Runs the repository-owned CI hook |
-| Node.js / JS / TS | `package.json` | Install dependencies; run declared `lint`, `typecheck`, `test`, `build` scripts |
+| Node.js / JavaScript / TypeScript | `package.json` | Installs dependencies; runs declared `lint`, `typecheck`, `test`, `build` scripts |
 | PHP | `composer.json` | Composer validation/install, PHP lint, declared Composer `lint`, `test`, `build` scripts |
-| Python | `pyproject.toml`, `requirements.txt`, `requirements-dev.txt`, `setup.py`, or `setup.cfg` | Dependency/project install where inferable, compile sources, run Ruff/Pytest when installed |
+| Python | `pyproject.toml`, `requirements.txt`, `requirements-dev.txt`, `setup.py`, or `setup.cfg` | Installs dependencies/project where safely inferable, compiles Python, runs Ruff/Pytest when available |
 | Go | `go.mod` | `go vet ./...`, `go test ./...` |
 | Rust | `Cargo.toml` | formatting, `cargo check`, tests |
 | Solidity / Foundry | `foundry.toml` | `forge fmt --check`, `forge build`, `forge test` |
 
-Detection in v1 is **root-level only**. Recursive monorepo discovery is not enabled.
+Detection in v1 is **root-level only**. Recursive monorepo discovery is intentionally not enabled.
 
 ## Custom CI hook
 
@@ -116,7 +120,7 @@ If a repository contains:
 scripts/ci.sh
 ```
 
-that hook takes precedence over automatic ecosystem jobs.
+that hook takes precedence over all automatic ecosystem jobs.
 
 Example:
 
@@ -130,35 +134,39 @@ npm test
 npm run build
 ```
 
-The workflow invokes it with Bash, so executable permission is not required, although keeping shell scripts executable is still good repository hygiene.
+Use a custom hook for monorepos, unsupported stacks, service/database setup, unusual commands, or projects that require a strict validation sequence.
 
-Use a custom CI hook when a project is a monorepo, requires services/databases, has an unsupported stack, or needs a specific validation sequence.
+The workflow invokes the hook with Bash, so executable permission is not required, although keeping shell scripts executable is good repository hygiene.
 
 ## Node.js behavior
 
-Universal CI recognizes npm, pnpm, Yarn, and Bun.
+Universal CI supports npm, pnpm, Yarn, and Bun.
 
-Package-manager selection is based on `package.json#packageManager` first, then lockfiles, with npm as the fallback. Lockfiles are respected where possible:
+Package-manager selection order:
 
-- npm: `npm ci` when `package-lock.json` or `npm-shrinkwrap.json` exists
-- pnpm: `pnpm install --frozen-lockfile` when `pnpm-lock.yaml` exists
-- Yarn: immutable/frozen-lockfile installation when `yarn.lock` exists
-- Bun: frozen lockfile installation when `bun.lock` or `bun.lockb` exists
+1. `package.json#packageManager`
+2. recognized lockfile
+3. npm fallback
 
-Only these declared package scripts are run automatically:
+Lockfiles are respected where possible:
+
+- npm: `npm ci` with `package-lock.json` or `npm-shrinkwrap.json`
+- pnpm: frozen-lockfile installation with `pnpm-lock.yaml`
+- Yarn: immutable/frozen-lockfile installation with `yarn.lock`
+- Bun: frozen-lockfile installation with `bun.lock` or `bun.lockb`
+
+Only these declared package scripts run automatically:
 
 ```text
 lint
- typecheck
- test
- build
+typecheck
+test
+build
 ```
 
-A missing script is skipped; it is not treated as a failure.
+A missing script is skipped, not treated as a failure.
 
 ## CI inputs
-
-You can override tool versions from the caller:
 
 | Input | Default |
 |---|---|
@@ -172,7 +180,7 @@ You can override tool versions from the caller:
 | `go-version` | `1.24.x` |
 | `rust-toolchain` | `stable` |
 
-Example:
+Example override:
 
 ```yaml
 jobs:
@@ -185,29 +193,29 @@ jobs:
 
 ## Multiple detected ecosystems
 
-If more than one supported root-level ecosystem is detected, the corresponding jobs may run in parallel. A custom `scripts/ci.sh` disables the automatic ecosystem jobs and becomes authoritative.
+If several supported root-level ecosystems are detected, their jobs may run in parallel. If `scripts/ci.sh` exists, it becomes authoritative and automatic ecosystem jobs are skipped.
 
 ## Unsupported repositories
 
-If no supported root-level type is detected, Universal CI completes successfully instead of failing by default. For such projects, add `scripts/ci.sh`.
+If no supported root-level project type is detected, Universal CI succeeds rather than failing by default. Add `scripts/ci.sh` to define CI for that project.
 
 ---
 
 # Universal CD v1
 
-Universal CD is intentionally deployment-platform-neutral. It does **not** guess whether a project uses SSH, Docker, Kubernetes, Vercel, a static host, a cloud provider, or a blockchain deployment.
+Universal CD is intentionally platform-neutral. It does **not** guess whether a project deploys with SSH, Docker, Kubernetes, a cloud CLI, static hosting, or blockchain tooling.
 
 The consumer repository owns deployment implementation through shell hooks.
 
 ## Safety defaults
-
-Universal CD defaults to:
 
 ```text
 enabled = false
 dry_run = true
 environment_name = production
 allowed_environments = production
+shared_target = false
+external_lock_confirmed = false
 ```
 
 A real deployment requires both:
@@ -217,13 +225,29 @@ enabled: true
 dry_run: false
 ```
 
-This two-switch model is deliberate.
+This two-switch gate is deliberate.
 
-## Recommended CD flow
+For a real deployment, Universal CD also verifies that the selected GitHub Environment already exists in the caller repository before the deploy job is allowed to start. This prevents a misspelled environment name from silently becoming a newly created, unprotected deployment environment.
 
-Prefer a caller triggered by `workflow_dispatch` while initially adopting CD. After a project is proven safe, you can additionally trigger deployment on a protected branch, release, or other explicit event.
+## Required permissions for a CD caller
 
-Example `.github/workflows/cd.yml`:
+Use:
+
+```yaml
+permissions:
+  actions: read
+  contents: read
+```
+
+`actions: read` is required for the real-deployment Environment existence check. `contents: read` is required to check out the consumer repository.
+
+No GitHub write permission is required by Universal CD itself.
+
+A reusable workflow cannot elevate token permissions above what the caller grants, so do not remove `actions: read` from a caller that may perform real deployment.
+
+## Recommended manual CD caller
+
+Start with `workflow_dispatch` and dry-run enabled by default:
 
 ```yaml
 name: CD
@@ -238,6 +262,7 @@ on:
         default: true
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -250,11 +275,13 @@ jobs:
       allowed_environments: production
 ```
 
-With the default manual input, this validates without deploying. A user must explicitly choose a non-dry run for the real deploy job to execute.
+With the default manual input, deployment hooks do not execute. A user must explicitly choose a non-dry run for the real deploy path.
 
-## Required deploy hook
+After a project is proven safe, the consumer may choose a protected branch, release, or another explicit trigger.
 
-For enabled CD, the default required hook is:
+## Required deployment hook
+
+The default required hook is:
 
 ```text
 scripts/deploy.sh
@@ -266,23 +293,19 @@ Example skeleton:
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Implement the project's deterministic deployment here.
-# Example: upload an artifact, run an SSH deployment command,
-# publish a container, or invoke a provider CLI.
+# Put this project's deterministic deployment logic here.
 ```
 
-A missing deploy hook causes validation to fail when CD is enabled.
+When CD is enabled, a missing deploy hook fails validation.
 
 ## Optional hooks
-
-These hooks are optional:
 
 ```text
 scripts/predeploy.sh
 scripts/healthcheck.sh
 ```
 
-Execution order for a real deployment is:
+Real-deployment order:
 
 ```text
 predeploy.sh (if present)
@@ -292,38 +315,29 @@ deploy.sh
 healthcheck.sh (if present)
 ```
 
-Any failing hook fails the deployment workflow.
+Any failing hook fails the workflow.
 
-## Working directory
-
-For projects whose deployment code is below the repository root:
-
-```yaml
-with:
-  working_directory: apps/backend
-```
-
-Hook paths are relative to that working directory.
+## Working directory and custom hook paths
 
 Example:
 
 ```yaml
 with:
   working_directory: apps/backend
+  predeploy_script: scripts/predeploy.sh
   deploy_script: scripts/deploy.sh
+  healthcheck_script: scripts/healthcheck.sh
 ```
 
-resolves to the equivalent repository location:
+The hooks above resolve under `apps/backend/`.
 
-```text
-apps/backend/scripts/deploy.sh
-```
-
-Absolute hook paths and `..` traversal segments are rejected.
+Absolute hook paths and `..` traversal segments are rejected. Hook invocation also terminates Bash options before the path so a script name cannot be interpreted as a Bash command-line option.
 
 ## GitHub Environments
 
-Real deployment jobs are attached to the caller-selected GitHub Environment:
+Create the deployment Environment in the **consumer repository before real deployment**.
+
+Example:
 
 ```yaml
 with:
@@ -331,11 +345,7 @@ with:
   allowed_environments: production
 ```
 
-Configure the corresponding Environment in the consumer repository and add protection rules appropriate for that repository, such as required reviewers where available.
-
-The explicit `allowed_environments` check also reduces the risk of an accidental typo selecting a newly created, unprotected environment.
-
-For multiple valid environments:
+For several valid environments:
 
 ```yaml
 with:
@@ -343,11 +353,16 @@ with:
   allowed_environments: staging,production
 ```
 
-Keep production approval and secret policy in the consumer repository.
+For real deployment, the selected name must both:
+
+1. appear in `allowed_environments`, and
+2. already exist as a GitHub Environment in the caller repository.
+
+Configure protection rules appropriate for each consumer repository, such as required reviewers where supported by the account/repository plan.
 
 ## Deployment variables
 
-Universal CD exposes these conventional non-secret values to repository hooks:
+Repository hooks receive these conventional non-secret values:
 
 ```text
 DEPLOY_HOST
@@ -357,7 +372,7 @@ DEPLOY_URL
 DEPLOY_ENVIRONMENT
 ```
 
-The first four can be supplied as workflow inputs:
+The first four can be supplied directly:
 
 ```yaml
 with:
@@ -367,13 +382,13 @@ with:
   deploy_url: https://example.com
 ```
 
-If an input is empty, the reusable workflow falls back to same-named GitHub `vars` values for `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_PATH`, and `DEPLOY_URL`.
+If those inputs are empty, the workflow falls back to same-named GitHub `vars` values for `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_PATH`, and `DEPLOY_URL`.
 
-Do not put credentials in these non-secret inputs or variables.
+Do not store credentials in these non-secret inputs or variables.
 
 ## Deployment secrets
 
-Supported optional secret channels are:
+Supported optional secret names are:
 
 ```text
 DEPLOY_TOKEN
@@ -382,9 +397,11 @@ DEPLOY_SSH_KEY
 DEPLOY_CREDENTIALS
 ```
 
-Pass only the secrets a project actually needs, and map them explicitly from the consumer workflow. Do not depend on broad secret inheritance for this setup.
+There are two relevant patterns.
 
-Example:
+### Repository-level secrets
+
+A repository-level secret can be passed explicitly from the caller:
 
 ```yaml
 jobs:
@@ -399,7 +416,15 @@ jobs:
       DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
 ```
 
-Repository hooks receive these values as environment variables only during the real deployment job.
+Pass only what the project actually needs. Broad secret inheritance is intentionally not required by this setup.
+
+### Environment-level secrets
+
+GitHub treats Environment secrets specially with reusable workflows. The caller job itself cannot attach an `environment` while it is a reusable-workflow call. Universal CD attaches the Environment to its internal real-deployment job.
+
+Therefore, if you use Environment-level secrets, define the supported secret names directly on the selected consumer-repository Environment (for example `production`). GitHub makes those Environment secrets available to the job that targets that Environment. If a same-named Environment secret and a passed secret both exist, the Environment-scoped value takes precedence for that job.
+
+This is useful for keeping production credentials bound to the protected production Environment.
 
 ## CD inputs
 
@@ -407,24 +432,24 @@ Repository hooks receive these values as environment variables only during the r
 |---|---|---|
 | `enabled` | `false` | Explicit CD opt-in |
 | `dry_run` | `true` | Validate without executing deployment hooks |
-| `environment_name` | `production` | GitHub Environment for a real deploy |
+| `environment_name` | `production` | GitHub Environment for a real deployment |
 | `allowed_environments` | `production` | Comma-separated environment allowlist |
-| `shared_target` | `false` | Declares that multiple repositories may deploy to one external target |
-| `external_lock_confirmed` | `false` | Confirms the deploy hook implements an external cross-repository lock |
+| `shared_target` | `false` | Declares that several repositories may deploy to the same external target |
+| `external_lock_confirmed` | `false` | Confirms the project deploy hook implements an external cross-repository lock |
 | `working_directory` | `.` | Directory containing hook paths |
 | `predeploy_script` | `scripts/predeploy.sh` | Optional predeploy hook |
-| `deploy_script` | `scripts/deploy.sh` | Required deployment hook |
+| `deploy_script` | `scripts/deploy.sh` | Required deploy hook |
 | `healthcheck_script` | `scripts/healthcheck.sh` | Optional health check |
 | `deploy_host` | empty | Optional non-secret host |
 | `deploy_user` | empty | Optional non-secret user |
 | `deploy_path` | empty | Optional non-secret path |
 | `deploy_url` | empty | Optional non-secret deployment URL |
 
-## Shared deployment targets
+## Shared external targets
 
-GitHub Actions concurrency groups are repository-scoped. They do not serialize two different repositories that deploy to the same host/cluster.
+GitHub Actions concurrency groups are repository-scoped. Two different repositories can therefore deploy concurrently even if they target the same host or cluster.
 
-If multiple repositories can target the same external deployment destination, declare it:
+If several repositories can target one external destination:
 
 ```yaml
 with:
@@ -432,98 +457,21 @@ with:
   external_lock_confirmed: true
 ```
 
-Setting `external_lock_confirmed: true` is a declaration that **your repository-owned deployment hook actually implements an external lock**. Universal CD does not create that lock for you.
+`external_lock_confirmed: true` is a declaration that **the consumer repository's deployment implementation really enforces an external lock**. Universal CD does not create a cross-repository lock itself.
 
-If `shared_target: true` is used without that confirmation, validation fails.
+`shared_target: true` without this confirmation fails validation.
 
 ## CD output
 
-Universal CD exposes:
+Universal CD exposes one reusable-workflow output:
 
 ```text
 deployed
 ```
 
-It is `true` only when the real deployment job completes successfully. Disabled and dry-run executions return `false`.
+It is `true` only when the real deploy job completes successfully. Disabled and dry-run executions return `false`.
 
-## Production recommendations
-
-For production repositories:
-
-1. Use a dedicated GitHub Environment such as `production`.
-2. Add required reviewers/protection rules where supported by your GitHub plan and repository type.
-3. Keep production secrets in GitHub Secrets/Environments, not in repository files.
-4. Start with `workflow_dispatch` and dry-run enabled by default.
-5. Make `scripts/deploy.sh` deterministic and idempotent when possible.
-6. Add a meaningful `scripts/healthcheck.sh`.
-7. Do not let an AI agent or application directly bypass the GitHub deployment workflow for production.
-8. Pin the reusable workflow to an exact commit SHA when immutable supply-chain pinning is required.
-
-## Smart contracts / blockchain
-
-Universal CD does not automatically deploy smart contracts and must not automatically deploy to a blockchain mainnet.
-
-Keep blockchain deployment in a dedicated project-owned hook or a future specialized adapter with explicit network, signer, approval, and confirmation safeguards.
-
----
-
-# Private repository setup
-
-This central repository is currently private. For another private repository owned by the same account to call these workflows, GitHub Actions access for the central repository must permit repositories owned by that account to use its reusable workflows.
-
-In this setup, that access has been enabled for repositories owned by `morexyz`.
-
-A consumer still needs its own small `.github/workflows/*.yml` caller file; reusable workflows are not automatically injected into repositories.
-
-# Permissions
-
-Both Universal CI and Universal CD currently declare:
-
-```yaml
-permissions:
-  contents: read
-```
-
-They are intentionally read-only at the GitHub token level. A repository-owned deployment hook may still act on external systems using explicitly supplied credentials.
-
-Do not add broad GitHub write permissions unless a specific future workflow requires them and the reason is documented.
-
-# Versioning
-
-Current stable pointers:
-
-```text
-v1     → Universal CI v1 line
-cd-v1  → Universal CD v1 line
-```
-
-Consumer repositories should normally use these stable pointers.
-
-For maximum reproducibility/security, pin to an exact commit SHA instead. When backwards-compatible fixes are released, the maintained major-version branch may be advanced deliberately after review and validation.
-
-Breaking changes should use a new major-version reference rather than silently changing the v1 contract.
-
-# Validation status
-
-The current versions have been validated cross-repository from `morexyz/simple-project`.
-
-Universal CI validation covered reusable-workflow resolution, root project detection, Node setup/install flow, and successful execution through the shared workflow.
-
-Universal CD validation included:
-
-- Codex review and fixes for environment-name safety, shared-target concurrency semantics, and Bash hook invocation safety
-- a cross-repository dry-run where a sentinel deploy hook would fail if accidentally executed
-- a harmless real execution in a non-production `cd-test` environment where predeploy, deploy, healthcheck, and summary all completed successfully
-
-No external production server, cloud deployment target, or blockchain network was used for the real-execution validation.
-
-# Known v1 boundaries
-
-Universal CI v1 intentionally does not yet provide automatic recursive monorepo discovery or built-in Java/Gradle/Maven, .NET, Ruby, or generic Docker-project detection. Use `scripts/ci.sh` for unsupported or specialized CI requirements.
-
-Universal CD v1 intentionally does not include platform-specific deployment adapters. Use repository-owned hooks; specialized SSH/VPS, Docker/container, static-hosting, cloud, or blockchain adapters can be added separately when needed.
-
-# Example minimal consumer repository
+## Example production-oriented consumer layout
 
 ```text
 my-project/
@@ -554,7 +502,7 @@ jobs:
     uses: morexyz/github-workflows/.github/workflows/universal-ci.yml@v1
 ```
 
-Safe manual CD caller:
+CD caller:
 
 ```yaml
 name: CD
@@ -564,11 +512,12 @@ on:
     inputs:
       dry_run:
         description: Validate only
-        type: boolean
         required: true
+        type: boolean
         default: true
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -579,25 +528,112 @@ jobs:
       dry_run: ${{ inputs.dry_run }}
       environment_name: production
       allowed_environments: production
-    secrets:
-      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
 ```
 
-Then place the actual deployment behavior in `scripts/deploy.sh` and validation in `scripts/healthcheck.sh`.
+Then put actual deployment behavior in `scripts/deploy.sh` and a meaningful post-deployment check in `scripts/healthcheck.sh`.
 
-# Contributing / changing the shared workflows
+## Production recommendations
 
-Changes to shared workflows affect many consumer repositories, so treat them as infrastructure changes:
+1. Create a dedicated `production` GitHub Environment before enabling real CD.
+2. Configure required reviewers/protection rules where supported.
+3. Keep production credentials in GitHub Secrets/Environments, never repository files.
+4. Begin with manual `workflow_dispatch` and `dry_run: true` by default.
+5. Make `scripts/deploy.sh` deterministic and preferably idempotent.
+6. Add a meaningful `scripts/healthcheck.sh`.
+7. Do not let an AI agent or application bypass the protected GitHub deployment path for production.
+8. Pin reusable workflows to exact commit SHAs when immutable supply-chain pinning is required.
 
-1. Work on a feature branch.
-2. Review the exact workflow diff.
-3. Run a review focused on reusable-workflow syntax, permissions, inputs/secrets, and shell safety.
-4. Validate through a disposable consumer repository.
-5. Test dry-run paths before real deployment paths.
-6. Merge only after successful validation.
-7. Advance stable version references deliberately.
+## Smart contracts / blockchain
 
-Do not use a production repository as the first test consumer for a shared workflow change.
+Universal CD does not automatically deploy smart contracts and must never infer or automatically perform a blockchain mainnet deployment.
+
+Keep blockchain deployment in an explicitly designed consumer hook or a specialized future adapter with network, signer, approval, and confirmation safeguards.
+
+---
+
+# Private repository setup
+
+This central repository is currently private.
+
+For a compatible private consumer repository to call it, the central repository's GitHub Actions access policy must permit that consumer. In the current `morexyz` setup, access has been enabled for repositories owned by the same account.
+
+Every consumer still needs its own small `.github/workflows/*.yml` caller. Reusable workflows are not automatically injected into projects.
+
+A public caller cannot consume a reusable workflow stored only in a private repository. Users outside this private-repository access boundary should copy/fork the workflows into a repository they control, or use this repository directly if it becomes public later.
+
+# Permissions model
+
+Universal CI:
+
+```yaml
+permissions:
+  contents: read
+```
+
+Universal CD:
+
+```yaml
+permissions:
+  actions: read
+  contents: read
+```
+
+Universal CD needs Actions read access only to verify that the target Environment already exists before a real deployment. It does not request GitHub write permission.
+
+External deployment rights come only from credentials intentionally made available to the consumer's deployment job.
+
+# Versioning model
+
+Current stable pointers:
+
+```text
+v1     → Universal CI v1 line
+cd-v1  → Universal CD v1 line
+```
+
+These branch refs are mutable major-version pointers. They should move only after compatible changes are reviewed and validated.
+
+Breaking workflow contracts should receive new major-version references rather than silently changing v1 behavior.
+
+For maximum reproducibility, use an exact commit SHA.
+
+# Validation status
+
+The workflows have been exercised cross-repository using `morexyz/simple-project` as a disposable consumer.
+
+Universal CI validation covered shared-workflow resolution, root project detection, Node setup/install flow, and successful workflow completion.
+
+Universal CD validation covered:
+
+- Codex review and fixes for Environment-name safety, cross-repository shared-target concurrency semantics, and Bash hook invocation safety
+- dry-run behavior with a sentinel deployment hook that would fail if accidentally executed
+- harmless real execution in a non-production `cd-test` Environment
+- predeploy/deploy/healthcheck sequencing
+- explicit verification that a deliberately nonexistent Environment fails validation before the deploy job can start
+- verification using the caller repository and caller token context
+
+No real production server, cloud deployment destination, or blockchain network was used during these tests.
+
+# Known v1 boundaries
+
+Universal CI v1 does not yet include automatic recursive monorepo discovery or built-in Java/Gradle/Maven, .NET, Ruby, or generic Docker-project detection. Use `scripts/ci.sh` for unsupported or specialized CI requirements.
+
+Universal CD v1 intentionally contains no platform-specific deployment adapter. Use repository-owned hooks today; SSH/VPS, Docker/container, static-hosting, cloud, or blockchain adapters can be added separately when real project requirements justify them.
+
+# Contributing / changing shared workflows
+
+Shared-workflow changes can affect many repositories. Treat them as infrastructure changes:
+
+1. Work on a feature/fix branch.
+2. Inspect the exact workflow diff.
+3. Review reusable-workflow syntax, permissions, inputs, secrets, expressions, and shell safety.
+4. Validate with a disposable consumer repository.
+5. Exercise negative safety tests as well as success paths.
+6. Test dry-run before any real deployment path.
+7. Merge only after validation succeeds.
+8. Advance stable version refs deliberately.
+
+Do not use a production repository as the first consumer test for a shared workflow change.
 
 # Security model summary
 
@@ -605,9 +641,10 @@ Do not use a production repository as the first test consumer for a shared workf
 - CD is disabled by default.
 - Enabled CD is dry-run by default.
 - Real deployment requires explicit `enabled: true` and `dry_run: false`.
-- Real deployment requires an allowed GitHub Environment name.
-- Deployment hooks are repository-owned and path validated.
-- Shared external targets require an explicit external-lock confirmation.
+- Real deployment requires an allowlisted Environment name.
+- The selected Environment must already exist before the deploy job starts.
+- Deployment hooks are consumer-owned and path validated.
+- Shared external targets require explicit external-lock confirmation.
 - GitHub token permissions remain read-only.
-- Deployment credentials must be supplied explicitly.
-- Production/mainnet deployment is never inferred automatically.
+- Deployment credentials are scoped through GitHub secrets/environments rather than repository files.
+- Production and blockchain mainnet deployment are never inferred automatically.
