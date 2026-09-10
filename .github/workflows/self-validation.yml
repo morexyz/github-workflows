@@ -46,3 +46,25 @@ jobs:
     with:
       enabled: false
       dry_run: true
+
+  self-validation:
+    name: Self Validation
+    needs: [actionlint, universal-ci, universal-cd-disabled]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify complete self validation
+        shell: bash
+        env:
+          ACTIONLINT_RESULT: ${{ needs.actionlint.result }}
+          UNIVERSAL_CI_RESULT: ${{ needs.universal-ci.result }}
+          UNIVERSAL_CD_RESULT: ${{ needs.universal-cd-disabled.result }}
+        run: |
+          set -euo pipefail
+          for result in "$ACTIONLINT_RESULT" "$UNIVERSAL_CI_RESULT" "$UNIVERSAL_CD_RESULT"; do
+            if test "$result" != success; then
+              echo "Self Validation failed because a required validation job did not succeed." >&2
+              exit 1
+            fi
+          done
+          echo "Self Validation passed."
