@@ -56,6 +56,7 @@ CI and CD are intentionally separate. **Universal CI never deploys.** Universal 
 
 AI_project_instruction.md
 README.md
+LICENSE
 ```
 
 ## Stable references
@@ -578,24 +579,26 @@ permissions:
   contents: read
 ```
 
-Universal CD needs Actions read access only to verify that the target Environment already exists before a real deployment. It does not request GitHub write permission.
+The reusable workflows do not grant themselves write access to repository contents.
 
-External deployment rights come only from credentials intentionally made available to the consumer's deployment job.
+# Versioning and pinning
 
-# Versioning model
-
-Current stable pointers:
+Current stable references:
 
 ```text
-v1     → Universal CI v1 line
-cd-v1  → Universal CD v1 line
+Universal CI v1: @v1
+Universal CD v1: @cd-v1
 ```
 
-These branch refs are mutable major-version pointers. They should move only after compatible changes are reviewed and validated.
+These references are separate so CI and CD can evolve independently.
 
-Breaking workflow contracts should receive new major-version references rather than silently changing v1 behavior.
+They are maintained branch references and therefore mutable. Use an exact commit SHA when your security policy requires immutable workflow code:
 
-For maximum reproducibility, use an exact commit SHA.
+```yaml
+uses: morexyz/github-workflows/.github/workflows/universal-ci.yml@<commit-sha>
+```
+
+When maintaining this repository, advance a stable reference only after the change has been reviewed and tested from a consumer repository.
 
 # Validation status
 
@@ -611,6 +614,7 @@ Universal CD validation covered:
 - predeploy/deploy/healthcheck sequencing
 - explicit verification that a deliberately nonexistent Environment fails validation before the deploy job can start
 - verification using the caller repository and caller token context
+- direct consumer validation through the released `@cd-v1` reference after the Environment guard hardening
 
 No real production server, cloud deployment destination, or blockchain network was used during these tests.
 
@@ -648,3 +652,7 @@ Do not use a production repository as the first consumer test for a shared workf
 - GitHub token permissions remain read-only.
 - Deployment credentials are scoped through GitHub secrets/environments rather than repository files.
 - Production and blockchain mainnet deployment are never inferred automatically.
+
+# License
+
+This project is licensed under the MIT License. See [`LICENSE`](LICENSE) for the full text.
