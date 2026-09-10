@@ -1,6 +1,6 @@
 # Branch Protection and Self Validation
 
-This repository protects shared workflow infrastructure with repository rulesets and an internal self-validation workflow.
+This repository protects shared workflow infrastructure with repository rulesets, pinned workflow dependencies, and an internal self-validation workflow.
 
 ## Protected refs
 
@@ -25,6 +25,29 @@ These refs are intentionally not configured to require pull requests because the
 
 Never force-update these refs. Advance them only with a fast-forward to a reviewed, validated backward-compatible commit.
 
+### `ci-v*` and `cd-v*`
+
+The active `Protect immutable releases` tag ruleset protects fixed workflow release tags against update and deletion after creation.
+
+Published fixed release tags must never be moved or reused. Publish a new versioned tag for every immutable workflow release.
+
+Current fixed releases:
+
+- `ci-v1.0.0` → `5695f6e2ea04c6d6eb7cd5aa45d33effc9f370f3`
+- `cd-v1.0.0` → `84216d819ac00d1096db2b2ae343769ede0f8ef3`
+
+## Workflow dependency pinning
+
+External GitHub Actions used by this repository are pinned to full commit SHAs. A human-readable major or channel name is kept in an inline comment, for example:
+
+```yaml
+uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+```
+
+Do not replace a full SHA with a movable branch or tag reference. To upgrade an Action, resolve and review the intended upstream ref, replace the SHA deliberately, and validate the change through a pull request.
+
+Downloaded tooling used by self-validation must also be integrity-pinned. The Actionlint binary is verified against a repository-owned fixed SHA-256 value before execution.
+
 ## Self Validation
 
 `.github/workflows/self-validation.yml` runs on pull requests and pushes to `main`.
@@ -39,11 +62,16 @@ A final aggregate job named `Self Validation` fails unless all three validations
 
 ## Release-ref rule
 
-Normal consumers use:
+Normal consumers may use the moving compatibility refs:
 
 - CI: `@v1`
 - CD: `@cd-v1`
 
-These are maintained branches, not immutable tags. Consumers that need immutable supply-chain pinning should use an exact commit SHA.
+Consumers that want a fixed published release may use:
+
+- CI: `@ci-v1.0.0`
+- CD: `@cd-v1.0.0`
+
+For maximum explicit supply-chain pinning, consumers may reference the exact workflow commit SHA directly.
 
 A documentation-only change to `main` does not justify advancing either stable ref. Stable refs should advance only when the corresponding reusable workflow release itself needs a backward-compatible update.
