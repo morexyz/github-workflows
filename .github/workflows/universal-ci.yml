@@ -1,0 +1,279 @@
+name: Universal CI
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: Node.js version for JavaScript/TypeScript projects
+        required: false
+        type: string
+        default: '22'
+      python-version:
+        description: Python version for Python projects
+        required: false
+        type: string
+        default: '3.12'
+      php-version:
+        description: PHP version for PHP projects
+        required: false
+        type: string
+        default: '8.3'
+      go-version:
+        description: Go version for Go projects
+        required: false
+        type: string
+        default: '1.24.x'
+      rust-toolchain:
+        description: Rust toolchain
+        required: false
+        type: string
+        default: 'stable'
+
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    name: Detect project type
+    runs-on: ubuntu-latest
+    outputs:
+      custom: ${{ steps.detect.outputs.custom }}
+      node: ${{ steps.detect.outputs.node }}
+      php: ${{ steps.detect.outputs.php }}
+      python: ${{ steps.detect.outputs.python }}
+      go: ${{ steps.detect.outputs.go }}
+      rust: ${{ steps.detect.outputs.rust }}
+      foundry: ${{ steps.detect.outputs.foundry }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+          emit() {
+            local key="$1"
+            local value="$2"
+            printf '%s=%s\n' "$key" "$value" >> "$GITHUB_OUTPUT"
+          }
+
+          test -f scripts/ci.sh && emit custom true || emit custom false
+          test -f package.json && emit node true || emit node false
+          test -f composer.json && emit php true || emit php false
+          if test -f pyproject.toml || test -f requirements.txt || test -f requirements-dev.txt || test -f setup.py || test -f setup.cfg; then
+            emit python true
+          else
+            emit python false
+          fi
+          test -f go.mod && emit go true || emit go false
+          test -f Cargo.toml && emit rust true || emit rust false
+          test -f foundry.toml && emit foundry true || emit foundry false
+
+  custom:
+    name: Custom CI
+    needs: detect
+    if: needs.detect.outputs.custom == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Run repository CI hook
+        shell: bash
+        run: bash scripts/ci.sh
+
+  node:
+    name: Node.js CI
+    needs: detect
+    if: needs.detect.outputs.custom != 'true' && needs.detect.outputs.node == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ inputs.node-version }}
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -f pnpm-lock.yaml; then
+            corepack prepare pnpm@latest --activate
+            pnpm install --frozen-lockfile
+          elif test -f yarn.lock; then
+            yarn install --immutable || yarn install --frozen-lockfile
+          elif test -f bun.lockb || test -f bun.lock; then
+            curl -fsSL https://bun.sh/install | bash
+            export PATH="$HOME/.bun/bin:$PATH"
+            bun install --frozen-lockfile
+          elif test -f package-lock.json || test -f npm-shrinkwrap.json; then
+            npm ci
+          else
+            npm install
+          fi
+      - name: Run declared validation scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -f pnpm-lock.yaml; then runner=pnpm;
+          elif test -f yarn.lock; then runner=yarn;
+          elif test -f bun.lockb || test -f bun.lock; then runner="$HOME/.bun/bin/bun";
+          else runner=npm; fi
+
+          node - <<'NODE' > /tmp/ci-scripts.txt
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const wanted = ['lint', 'typecheck', 'test', 'build'];
+          for (const name of wanted) if (pkg.scripts && pkg.scripts[name]) console.log(name);
+          NODE
+
+          while IFS= read -r script; do
+            test -n "$script" || continue
+            case "$runner" in
+              pnpm) pnpm run "$script" ;;
+              yarn) yarn "$script" ;;
+              npm) npm run "$script" ;;
+              *) "$runner" run "$script" ;;
+            esac
+          done < /tmp/ci-scripts.txt
+
+  php:
+    name: PHP CI
+    needs: detect
+    if: needs.detect.outputs.custom != 'true' && needs.detect.outputs.php == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php-version }}
+          tools: composer:v2
+      - name: Validate Composer metadata
+        run: composer validate --no-check-publish
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Lint PHP files
+        shell: bash
+        run: |
+          set -euo pipefail
+          find . -type f -name '*.php' \
+            -not -path './vendor/*' \
+            -print0 | xargs -0 -r -n1 php -l
+      - name: Run declared Composer scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          php -r '$p=json_decode(file_get_contents("composer.json"), true); foreach (["lint","test","build"] as $s) if (!empty($p["scripts"][$s])) echo $s, PHP_EOL;' > /tmp/composer-scripts.txt
+          while IFS= read -r script; do
+            test -n "$script" || continue
+            composer run-script "$script"
+          done < /tmp/composer-scripts.txt
+
+  python:
+    name: Python CI
+    needs: detect
+    if: needs.detect.outputs.custom != 'true' && needs.detect.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            requirements*.txt
+            pyproject.toml
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          if test -f requirements.txt; then python -m pip install -r requirements.txt; fi
+          if test -f requirements-dev.txt; then python -m pip install -r requirements-dev.txt; fi
+          if test -f pyproject.toml && ! test -f requirements.txt; then python -m pip install .; fi
+      - name: Compile Python sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q . -x '(^|/)(\.git|\.venv|venv|build|dist|node_modules)/'
+      - name: Run available checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          if python -c 'import ruff' 2>/dev/null; then python -m ruff check .; fi
+          if python -c 'import pytest' 2>/dev/null; then python -m pytest; fi
+
+  go:
+    name: Go CI
+    needs: detect
+    if: needs.detect.outputs.custom != 'true' && needs.detect.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go-version }}
+          cache: true
+      - run: go vet ./...
+      - run: go test ./...
+
+  rust:
+    name: Rust CI
+    needs: detect
+    if: needs.detect.outputs.custom != 'true' && needs.detect.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ inputs.rust-toolchain }}
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+      - run: cargo check --all-targets --all-features
+      - run: cargo test --all-features
+
+  foundry:
+    name: Foundry CI
+    needs: detect
+    if: needs.detect.outputs.custom != 'true' && needs.detect.outputs.foundry == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+      - run: forge fmt --check
+      - run: forge build
+      - run: forge test
+
+  summary:
+    name: Universal CI summary
+    needs: [detect, custom, node, php, python, go, rust, foundry]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify CI result
+        shell: bash
+        env:
+          DETECT: ${{ needs.detect.result }}
+          CUSTOM: ${{ needs.custom.result }}
+          NODE: ${{ needs.node.result }}
+          PHP: ${{ needs.php.result }}
+          PYTHON: ${{ needs.python.result }}
+          GO: ${{ needs.go.result }}
+          RUST: ${{ needs.rust.result }}
+          FOUNDRY: ${{ needs.foundry.result }}
+        run: |
+          set -euo pipefail
+          for result in "$DETECT" "$CUSTOM" "$NODE" "$PHP" "$PYTHON" "$GO" "$RUST" "$FOUNDRY"; do
+            if test "$result" = failure || test "$result" = cancelled; then
+              echo "Universal CI failed."
+              exit 1
+            fi
+          done
+          echo "Universal CI passed or no supported root-level project type was detected."
