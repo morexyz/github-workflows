@@ -18,6 +18,21 @@ on:
         required: false
         type: string
         default: production
+      allowed_environments:
+        description: Comma-separated allowlist for real deployment environments.
+        required: false
+        type: string
+        default: production
+      shared_target:
+        description: Set true only when multiple repositories may deploy to the same external target.
+        required: false
+        type: boolean
+        default: false
+      external_lock_confirmed:
+        description: Required for shared_target=true; confirms the repository deploy hook enforces an external cross-repository lock.
+        required: false
+        type: boolean
+        default: false
       working_directory:
         description: Repository-relative directory containing deployment hooks.
         required: false
@@ -93,6 +108,9 @@ jobs:
           ENABLED: ${{ inputs.enabled }}
           DRY_RUN: ${{ inputs.dry_run }}
           ENVIRONMENT_NAME: ${{ inputs.environment_name }}
+          ALLOWED_ENVIRONMENTS: ${{ inputs.allowed_environments }}
+          SHARED_TARGET: ${{ inputs.shared_target }}
+          EXTERNAL_LOCK_CONFIRMED: ${{ inputs.external_lock_confirmed }}
           WORKING_DIRECTORY: ${{ inputs.working_directory }}
           PREDEPLOY_SCRIPT: ${{ inputs.predeploy_script }}
           DEPLOY_SCRIPT: ${{ inputs.deploy_script }}
@@ -145,6 +163,27 @@ jobs:
           }
 
           if test "$ENABLED" = true; then
+            allowed=false
+            IFS=',' read -r -a allowed_items <<< "$ALLOWED_ENVIRONMENTS"
+            for raw_item in "${allowed_items[@]}"; do
+              item="${raw_item#"${raw_item%%[![:space:]]*}"}"
+              item="${item%"${item##*[![:space:]]}"}"
+              if test "$item" = "$ENVIRONMENT_NAME"; then
+                allowed=true
+                break
+              fi
+            done
+
+            if test "$allowed" != true; then
+              echo "environment_name '$ENVIRONMENT_NAME' is not in allowed_environments." >&2
+              exit 1
+            fi
+
+            if test "$SHARED_TARGET" = true && test "$EXTERNAL_LOCK_CONFIRMED" != true; then
+              echo "shared_target=true requires external_lock_confirmed=true because GitHub concurrency groups do not serialize deployments across repositories." >&2
+              exit 1
+            fi
+
             test -f "$WORKING_DIRECTORY/$DEPLOY_SCRIPT" || {
               echo "Required deploy hook not found: $WORKING_DIRECTORY/$DEPLOY_SCRIPT" >&2
               exit 1
@@ -221,7 +260,7 @@ jobs:
         run: |
           set -euo pipefail
           if test -f "$PREDEPLOY_SCRIPT"; then
-            bash "$PREDEPLOY_SCRIPT"
+            bash -- "$PREDEPLOY_SCRIPT"
           else
             echo "No pre-deployment hook found; continuing."
           fi
@@ -242,7 +281,7 @@ jobs:
           DEPLOY_CREDENTIALS: ${{ secrets.DEPLOY_CREDENTIALS }}
         run: |
           set -euo pipefail
-          bash "$DEPLOY_SCRIPT"
+          bash -- "$DEPLOY_SCRIPT"
 
       - name: Run optional health check
         if: inputs.healthcheck_script != ''
@@ -262,7 +301,7 @@ jobs:
         run: |
           set -euo pipefail
           if test -f "$HEALTHCHECK_SCRIPT"; then
-            bash "$HEALTHCHECK_SCRIPT"
+            bash -- "$HEALTHCHECK_SCRIPT"
           else
             echo "No health-check hook found; continuing."
           fi
