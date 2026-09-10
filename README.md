@@ -9,6 +9,11 @@ Stable workflow references:
 - **Universal CI v1** — `morexyz/github-workflows/.github/workflows/universal-ci.yml@v1`
 - **Universal CD v1** — `morexyz/github-workflows/.github/workflows/universal-cd.yml@cd-v1`
 
+Fixed release references:
+
+- **Universal CI v1.0.0** — `morexyz/github-workflows/.github/workflows/universal-ci.yml@ci-v1.0.0`
+- **Universal CD v1.0.0** — `morexyz/github-workflows/.github/workflows/universal-cd.yml@cd-v1.0.0`
+
 The design goal is simple: consumer repositories keep tiny caller workflows, while common orchestration lives here. Project-specific CI or deployment behavior stays in the consumer repository through explicit hooks.
 
 ## Architecture
@@ -64,6 +69,7 @@ This central workflow repository protects itself before shared-workflow changes 
 - Pull requests must be up to date with `main` before the required check can satisfy the merge gate.
 - `Self Validation` combines Actionlint, a Universal CI smoke test, and a Universal CD disabled/dry-run smoke test.
 - `v1` and `cd-v1` are protected against deletion, force-pushes, and non-linear history while remaining deliberately fast-forwardable for reviewed backward-compatible releases.
+- `ci-v*` and `cd-v*` fixed release tags are protected against update and deletion after creation.
 
 See [`docs/BRANCH_PROTECTION.md`](docs/BRANCH_PROTECTION.md) for the maintained hardening model.
 
@@ -78,10 +84,26 @@ CD: @cd-v1
 
 These are mutable major-version pointers. They may advance only for backward-compatible, reviewed, validated fixes.
 
-For immutable supply-chain pinning, reference an exact commit SHA instead:
+For a fixed release that must not move, use the protected release tags:
+
+```text
+CI: @ci-v1.0.0
+CD: @cd-v1.0.0
+```
+
+Current fixed release mappings:
+
+```text
+ci-v1.0.0 → 5695f6e2ea04c6d6eb7cd5aa45d33effc9f370f3
+cd-v1.0.0 → 84216d819ac00d1096db2b2ae343769ede0f8ef3
+```
+
+The `Protect immutable releases` tag ruleset blocks updates and deletions for `ci-v*` and `cd-v*` tags after creation.
+
+For maximum supply-chain pinning, an exact commit SHA is still the most explicit reference:
 
 ```yaml
-uses: morexyz/github-workflows/.github/workflows/universal-ci.yml@<commit-sha>
+uses: morexyz/github-workflows/.github/workflows/universal-ci.yml@5695f6e2ea04c6d6eb7cd5aa45d33effc9f370f3
 ```
 
 Breaking workflow contracts should use new major-version references rather than silently changing v1 behavior.
@@ -505,7 +527,7 @@ my-project/
 5. Make `scripts/deploy.sh` deterministic and preferably idempotent.
 6. Add a meaningful `scripts/healthcheck.sh`.
 7. Do not let an AI agent or application bypass the protected GitHub deployment path for production.
-8. Pin reusable workflows to exact commit SHAs when immutable supply-chain pinning is required.
+8. Pin reusable workflows to an immutable release tag or exact commit SHA when supply-chain immutability is required.
 
 ## Smart contracts / blockchain
 
@@ -521,7 +543,7 @@ This repository is public. Public and private consumer repositories can referenc
 
 Every consumer still needs its own small `.github/workflows/*.yml` caller. Reusable workflows are not automatically injected into projects.
 
-If a repository's Actions policy restricts external or reusable workflows, allow this repository or use an exact commit SHA according to that repository's security policy.
+If a repository's Actions policy restricts external or reusable workflows, allow this repository or use an immutable release tag or exact commit SHA according to that repository's security policy.
 
 # Permissions model
 
@@ -560,6 +582,8 @@ Universal CD validation covered:
 
 Repository-level validation also now includes the required aggregate `Self Validation` check on changes targeting `main`.
 
+Fixed release tags `ci-v1.0.0` and `cd-v1.0.0` were published and verified against their intended CI and CD commits, and are covered by the immutable-release tag ruleset.
+
 No real production server, cloud deployment destination, or blockchain network was used during these tests.
 
 # Known v1 boundaries
@@ -580,6 +604,7 @@ Shared-workflow changes can affect many repositories. Treat them as infrastructu
 6. Test dry-run before any real deployment path.
 7. Merge only after validation succeeds.
 8. Advance stable version refs deliberately.
+9. Publish a new fixed release tag for a versioned immutable release; never move an existing fixed release tag.
 
 Do not use a production repository as the first consumer test for a shared workflow change.
 
@@ -597,6 +622,7 @@ Do not use a production repository as the first consumer test for a shared workf
 - Deployment credentials are scoped through GitHub secrets/environments rather than repository files.
 - Production and blockchain mainnet deployment are never inferred automatically.
 - Changes targeting `main` must pass the aggregate `Self Validation` gate and be current with `main` before merge.
+- Fixed `ci-v*` and `cd-v*` release tags are protected against update and deletion after creation.
 
 # License
 
