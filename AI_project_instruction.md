@@ -28,6 +28,13 @@ This repository is the central home for reusable GitHub Actions workflows shared
 - Real deployment must use a named GitHub Environment and should use environment protection rules where appropriate.
 - Secrets must be passed explicitly to reusable CD workflows; do not assume cross-repository `secrets: inherit` for this personal-account repository layout.
 
+## Stable References
+
+- Universal CI v1: `morexyz/github-workflows/.github/workflows/universal-ci.yml@v1`
+- Universal CD v1: `morexyz/github-workflows/.github/workflows/universal-cd.yml@cd-v1`
+
+Keep CI and CD release refs independent so updating one does not silently change the other.
+
 ## Universal CI v1
 
 Supported automatic detection:
@@ -38,6 +45,7 @@ Supported automatic detection:
 - PHP: `composer.json`
   - Validates Composer metadata, installs dependencies, lints project PHP files, then runs declared `lint`, `test`, and `build` Composer scripts.
 - Python: `pyproject.toml`, `requirements.txt`, `requirements-dev.txt`, `setup.py`, or `setup.cfg`
+  - Supports Python 3.8 or newer.
   - Installs declared dependencies where safely inferable, compiles Python sources, and runs pytest/ruff only when available.
 - Go: `go.mod`
   - Runs `go vet ./...` and `go test ./...`.
@@ -56,14 +64,17 @@ Universal CD is intentionally generic and does not guess how to deploy a project
 - `dry_run` defaults to `true`.
 - A real deployment requires both `enabled: true` and `dry_run: false`.
 - Real deployment runs inside the caller-selected GitHub Environment, default `production`.
+- `allowed_environments` restricts which environment names may be used for real deployment and defaults to `production`.
 - The caller repository owns deployment logic through `scripts/deploy.sh` by default.
 - Optional hooks are `scripts/predeploy.sh` and `scripts/healthcheck.sh`.
 - `working_directory` supports repositories where deployment hooks live below the root.
 - Standard non-secret deployment values are exposed as `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_PATH`, and `DEPLOY_URL`.
 - Standard optional secrets are `DEPLOY_TOKEN`, `DEPLOY_PASSWORD`, `DEPLOY_SSH_KEY`, and `DEPLOY_CREDENTIALS`.
 - Hook paths must be repository-relative and cannot contain `..` path segments.
+- Hook execution uses `bash --` so hook names cannot be interpreted as Bash options.
 - A missing required deploy hook fails validation when CD is enabled.
 - Disabled and dry-run modes never execute deployment hooks.
+- If multiple repositories share one external deployment target, the caller must explicitly set `shared_target: true` and confirm that the deployment hook provides an external lock via `external_lock_confirmed: true`.
 
 Deployment adapters such as SSH/VPS, Docker, static hosting, cloud platforms, and smart-contract deployment should be added separately rather than making Universal CD infer a deployment strategy. Smart-contract mainnet deployment must never be automatic.
 
@@ -77,6 +88,7 @@ Deployment adapters such as SSH/VPS, Docker, static hosting, cloud platforms, an
 - Do not change Universal CD defaults so that a caller can deploy without explicit opt-in.
 - Do not bypass GitHub Environment protection rules for production.
 - Do not add automatic blockchain mainnet deployment to Universal CD.
+- Do not rely on repository-scoped GitHub concurrency to coordinate different repositories that deploy to one shared external target.
 
 ## Completed Steps
 
@@ -86,12 +98,17 @@ Deployment adapters such as SSH/VPS, Docker, static hosting, cloud platforms, an
 4. Validated Universal CI from `morexyz/simple-project` using a cross-repository reusable workflow call.
 5. Merged Universal CI v1 to `main` and created stable `v1` ref.
 6. Updated `morexyz/simple-project` to use `morexyz/github-workflows/.github/workflows/universal-ci.yml@v1`.
-7. Started Universal CD v1 on branch `feat/universal-cd-v1`.
+7. Implemented Universal CD v1 and addressed Codex findings covering environment allowlisting, cross-repository shared-target locking, and Bash hook invocation safety.
+8. Codex re-review of Universal CD v1 found no major issues.
+9. Verified cross-repository dry-run behavior in `morexyz/simple-project`; the real deploy job was skipped and the sentinel deploy hook was not executed.
+10. Verified a harmless real deployment flow in the `cd-test` environment; predeploy, deploy, healthcheck, and summary all succeeded without any external target or credentials.
+11. Merged Universal CD v1 to `main` and created stable `cd-v1` ref.
+12. Closed the temporary Universal CD test PR in `morexyz/simple-project` without merging test-only hooks into `master`.
 
 ## Next Steps
 
-1. Review Universal CD v1 for workflow syntax, permissions, environment/secrets behavior, and path safety.
-2. Add a dry-run caller to a disposable/test repository and verify no deployment hook executes.
-3. Add a harmless test deployment hook and verify explicit real-deployment gating in a non-production test environment.
-4. Merge Universal CD only after review and successful caller tests.
-5. Add deployment adapters separately as real project needs are identified.
+1. Add deployment adapters only when a real repository needs them, such as SSH/VPS, Docker, static hosting, or a specific cloud platform.
+2. Configure GitHub Environments and approval/protection rules in each consumer repository before enabling production deployment.
+3. Add a small production CD caller only to repositories that explicitly opt in.
+4. Keep smart-contract deployment separate; never infer or automatically enable blockchain mainnet deployment.
+5. Revisit monorepo CI discovery and additional language ecosystems only when concrete repositories require them.
