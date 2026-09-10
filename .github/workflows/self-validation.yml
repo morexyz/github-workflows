@@ -15,20 +15,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Install and verify actionlint
         shell: bash
         env:
           ACTIONLINT_VERSION: 1.7.12
+          ACTIONLINT_LINUX_AMD64_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
         run: |
           set -euo pipefail
           archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
           base="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
           curl --fail --location --silent --show-error --output "$RUNNER_TEMP/$archive" "$base/$archive"
-          curl --fail --location --silent --show-error --output "$RUNNER_TEMP/checksums.txt" "$base/actionlint_${ACTIONLINT_VERSION}_checksums.txt"
-          expected="$(grep "  $archive$" "$RUNNER_TEMP/checksums.txt")"
-          test -n "$expected"
-          printf '%s\n' "$expected" | (cd "$RUNNER_TEMP" && sha256sum --check --strict -)
+          printf '%s  %s\n' "$ACTIONLINT_LINUX_AMD64_SHA256" "$archive" \
+            | (cd "$RUNNER_TEMP" && sha256sum --check --strict -)
           tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint" -version
       - name: Lint GitHub Actions workflows

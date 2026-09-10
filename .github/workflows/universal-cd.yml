@@ -101,7 +101,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Validate Universal CD inputs
         shell: bash
@@ -248,7 +248,7 @@ jobs:
     if: inputs.enabled && inputs.dry_run
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Show deployment plan
         shell: bash
         env:
@@ -281,7 +281,7 @@ jobs:
       group: deploy-${{ github.repository }}-${{ inputs.environment_name }}
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Run optional pre-deployment hook
         if: inputs.predeploy_script != ''
